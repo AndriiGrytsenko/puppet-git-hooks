@@ -1,0 +1,68 @@
+#!/bin/sh
+
+NOBOLD="\033[0m"
+BOLD="\033[1m"
+RED="\033[31m"
+CYAN="\033[36m"
+
+syntax_check="puppet parser validate"
+lint_check="puppet-lint --no-autoloader_layout-check"
+tmp=$(mktemp /tmp/git.update.XXXXXX)
+log=$(mktemp /tmp/git.update.log.XXXXXX)
+tree=$(mktemp /tmp/git.diff-tree.XXXXXX)
+
+
+git diff-tree -r "$2" "$3" > $tree
+
+echo
+echo diff-tree:
+cat $tree
+
+exit_status=0
+
+while read old_mode new_mode old_sha1 new_sha1 status name
+do
+  # skip lines showing parent commit
+  test -z "$new_sha1" && continue
+  # skip deletions
+  [ "$new_sha1" = "0000000000000000000000000000000000000000" ] && continue
+  # Only test .pp files
+  if [[ $name =~ [.]pp$ ]]
+  then
+    git cat-file blob $new_sha1 > $tmp
+    set -o pipefail
+    # added 21/06/2013 - Toki Winter
+    grep -qs "import" $tmp
+    if [ "$?" -eq "0" ]; then
+        # blows up when it can't import a file, so just continue
+        continue
+    fi
+    $syntax_check $tmp 2>&1 | sed "s|$tmp|$name|"> $log
+    if [[ $? != 0 ]]
+    then
+      echo
+      echo -e "$(cat $log | sed 's|JOJOMOJO|'\\${RED}${name}\\${NOBOLD}'|')" >&2
+      echo -e "For more details run this: ${CYAN} git diff $old_sha1 $new_sha1 ${NOBOLD}" >&2
+      echo
+      exit_status=1
+    fi
+   $lint_check $tmp
+   if [[ $? != 0 ]]
+   then
+     echo
+     echo -e "${RED}Linting failed for ${name}! Check messages above! ${NOBOLD}" >&2
+     exit_status=1
+   fi
+  elif [[ $name =~ [.]erb$ ]]
+  then
+    git cat-file blob $new_sha1 > $tmp
+    erb -x -T - "${tmp}" | ruby -c > /dev/null 2>&1
+    if [[ $? -ne 0 ]]; then
+      echo "${RED}ERB syntax error in ${name}  ${NOBOLD}" >&2
+      exit_status=1
+    fi
+  fi
+done < $tree
+
+rm -f $log $tmp $tree
+exit $exit_status

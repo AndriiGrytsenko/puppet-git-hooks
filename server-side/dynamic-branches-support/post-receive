@@ -1,0 +1,26 @@
+#!/bin/bash
+
+read oldrev newrev refname
+
+ENVIRONMENT_BASE="/etc/puppet/environments"
+REPOSITORY=$(pwd)
+BRANCH=$( echo "${refname}" | sed -n 's!^refs/heads/!!p' )
+
+# newrev is a bunch of 0s
+echo "${newrev}" | grep -qs '^0*$'
+if [ "$?" -eq "0" ]; then
+    echo "Deleting remote branch ${ENVIRONMENT_BASE}/${BRANCH}"
+    cd ${ENVIRONMENT_BASE}; rm -rf ${BRANCH}
+else
+    if [ -d "${ENVIRONMENT_BASE}/${BRANCH}" ]; then
+        echo "Updating remote branch ${ENVIRONMENT_BASE}/${BRANCH}"
+    cd ${ENVIRONMENT_BASE}/${BRANCH};
+    unset GIT_DIR
+    git pull
+    else
+        echo "Creating remote branch ${ENVIRONMENT_BASE}/${BRANCH}"
+        cd ${ENVIRONMENT_BASE}; git clone ${REPOSITORY} ${BRANCH} --branch ${BRANCH}
+    fi
+fi
+
+exit 0
